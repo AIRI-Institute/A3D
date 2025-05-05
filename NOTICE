@@ -1,0 +1,25 @@
+This product includes software developed by the authors of MVDream-threestudio:
+https://github.com/bytedance/MVDream-threestudio
+
+Original authors:
+- Yifan Jiang
+- Shuai Yang
+- Peihao Zhu
+- Yujun Shen
+- Yujiao Chen
+- Xintao Wang
+- Yingyan Lin
+- Bolei Zhou
+
+Licensed under the Apache License, Version 2.0 (see LICENSE file).
+
+Modifications made by the authors of the paper:
+“A3D: Does Diffusion Dream about 3D Alignment”, accepted to ICLR 2025.
+
+- Savva Ignatyev (Skolkovo Institute of Science and Technology)
+- Nina Konovalova (AIRI: Artificial Intelligence Research Institute)
+- Oleg Voynov (Skolkovo Institute of Science and Technology, AIRI: Artificial Intelligence Research Institute)
+- Nikolay Patakin (AIRI: Artificial Intelligence Research Institute)
+...
+
+These modifications were made as part of the research accompanying the above publication.
