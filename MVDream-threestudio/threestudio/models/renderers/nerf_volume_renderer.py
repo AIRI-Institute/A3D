@@ -173,7 +173,7 @@ class NeRFVolumeRenderer(VolumeRenderer):
             ray_indices=ray_indices,
             n_rays=n_rays,
         )
-
+       
         if bg_color is None:
             bg_color = comp_rgb_bg
         else:

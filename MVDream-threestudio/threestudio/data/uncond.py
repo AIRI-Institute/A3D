@@ -1,8 +1,3 @@
-# Modified by the authors of the ICLR 2025 paper:
-# "A3D: Does Diffusion Dream about 3D Alignment?"
-# Based on MVDream-threestudio (https://github.com/bytedance/MVDream-threestudio)
-# Licensed under the Apache License 2.0
-
 import bisect
 import math
 import random
@@ -25,6 +20,22 @@ from threestudio.utils.ops import (
     get_rays,
 )
 from threestudio.utils.typing import *
+
+def mix_two(mix_coef, ind_a, ind_b, n_prompts):
+    assert isinstance(n_prompts, int)
+    assert isinstance(mix_coef, float)
+    assert isinstance(ind_a, int)
+    assert isinstance(ind_b, int)
+    assert ind_a != ind_b
+    assert ind_a >= 0 and ind_b >= 0 and ind_a < n_prompts and ind_b < n_prompts
+    assert mix_coef <= 1 and mix_coef >= 0
+    
+    interpolation_weight = torch.zeros(1, n_prompts)
+
+    interpolation_weight[0, ind_a] = mix_coef
+    interpolation_weight[0, ind_b] = 1 - mix_coef
+    parameters = interpolation_weight.reshape(1, 1, 1, n_prompts)
+    return interpolation_weight, parameters
 
 
 @dataclass
@@ -307,6 +318,8 @@ class RandomCameraIterableDataset(IterableDataset, Updateable):
         )
         c2w[:, 3, 3] = 1.0
 
+
+
         # get directions by dividing directions_unit_focal by focal length
         focal_length: Float[Tensor, "B"] = 0.5 * self.height / torch.tan(0.5 * fovy)
         directions: Float[Tensor, "B H W 3"] = self.directions_unit_focal[
@@ -432,6 +445,7 @@ class RandomCameraDataset(Dataset):
         self.elevation_deg, self.azimuth_deg = elevation_deg, azimuth_deg
         self.camera_distances = camera_distances
 
+
     def __len__(self):
         return self.n_views
 
@@ -458,34 +472,50 @@ class RandomCameraDataset(Dataset):
 
 class RandomCameraInterpolationDataset(RandomCameraDataset):
     def __len__(self):
-        return self.n_views * 5
+        if self.cfg.n_prompts == 2:
+            return self.n_views * (self.cfg.n_prompts + 3)
+        elif self.cfg.n_prompts == 1:
+            return self.n_views * (self.cfg.n_prompts)
+        return self.n_views * (self.cfg.n_prompts + 1)
 
     def __getitem__(self, index):
-        # print("Index: ", index)
-        if index // self.n_views == 3:
-            dict_batch = super().__getitem__(0)
-            interpolation_weight = torch.ones([1]) * (float(index % self.n_views) / self.n_views)
-        elif index // self.n_views == 4:
-            dict_batch = super().__getitem__(self.n_views // 4)
-            interpolation_weight = torch.ones([1]) * (float(index % self.n_views) / self.n_views)            
+        
+        img_idx = index % self.n_views
+        if self.cfg.n_prompts == 1:
+            interpolation_weight = torch.ones([1]).reshape(1, 1)
+            parameters = interpolation_weight.reshape(1, 1, 1, 1)
+            dict_batch = super().__getitem__(img_idx)
         else:
-            dict_batch = super().__getitem__(index % self.n_views)
-            if index // self.n_views == 0:
-                interpolation_weight = torch.zeros([1])
-            elif index // self.n_views == 1:
-                interpolation_weight = torch.ones([1])
-            elif index // self.n_views == 2:
-                interpolation_weight = torch.ones([1])
-        parameters = interpolation_weight.reshape(1, 1, 1)
+            if  index // self.n_views ==  self.cfg.n_prompts + 1:
+                prompt_id_a = 0
+                dict_batch = super().__getitem__(0)
+                img_idx = 0
+                weight_coef = (float(index % self.n_views) / self.n_views)        
+            elif index // self.n_views ==  self.cfg.n_prompts + 2:
+                prompt_id_a = 0
+                dict_batch = super().__getitem__(self.n_views // 5)
+                weight_coef = (float(index % self.n_views) / self.n_views)   
+            elif index // self.n_views ==  self.cfg.n_prompts:
+                prompt_id_a = 0
+                dict_batch = super().__getitem__(img_idx)
+                weight_coef = (float(index % self.n_views) / self.n_views)        
+            else:
+                dict_batch = super().__getitem__(img_idx)
+                prompt_id_a = index // self.n_views
+                weight_coef = 1.
+            
+            prompt_id_b = (prompt_id_a + 1) % self.cfg.n_prompts
+            interpolation_weight, parameters = mix_two(weight_coef, prompt_id_a, prompt_id_b, self.cfg.n_prompts)
+        
         dict_batch["index"] = index
-        dict_batch['parameters'] = parameters
-        dict_batch['interpolation_weight'] = interpolation_weight
+        dict_batch['parameters'] = parameters[0]
+        dict_batch['interpolation_weight'] = interpolation_weight[0]
         return dict_batch
 
     def collate(self, batch):
         batch = super().collate(batch)
         assert len(batch['index']) == 1
-        if batch['index'][0] // self.n_views == 2:
+        if batch['index'][0] // self.n_views == self.cfg.n_prompts:
             batch['spatial_parameter_interpolation'] = 0   
         else:
             batch['spatial_parameter_interpolation'] = None

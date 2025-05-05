@@ -1,8 +1,3 @@
-# Modified by the authors of the ICLR 2025 paper:
-# "A3D: Does Diffusion Dream about 3D Alignment?"
-# Based on MVDream-threestudio (https://github.com/bytedance/MVDream-threestudio)
-# Licensed under the Apache License 2.0
-
 from dataclasses import dataclass, field
 
 import cv2
@@ -33,6 +28,7 @@ class MeshExporter(Exporter):
         xatlas_chart_options: dict = field(default_factory=dict)
         xatlas_pack_options: dict = field(default_factory=dict)
         context_type: str = "gl"
+        
 
     cfg: Config
 
@@ -141,7 +137,7 @@ class MeshExporter(Exporter):
             )
         ]
 
-    def export_obj(self, mesh: Mesh) -> List[ExporterOutput]:
+    def export_obj(self, mesh: Mesh, parameters=None) -> List[ExporterOutput]:
         params = {
             "mesh": mesh,
             "save_mat": False,
@@ -162,8 +158,8 @@ class MeshExporter(Exporter):
 
         if self.cfg.save_texture:
             threestudio.info("Exporting textures ...")
-            geo_out = self.geometry.export(points=mesh.v_pos)
-            mat_out = self.material.export(points=mesh.v_pos, **geo_out)
+            geo_out = self.geometry.export(points=mesh.v_pos, parameters=parameters)
+            mat_out = self.material.export(points=mesh.v_pos, parameters=parameters, **geo_out)
 
             if "albedo" in mat_out:
                 mesh.set_vertex_color(mat_out["albedo"])
@@ -183,11 +179,12 @@ class MeshExporter(Exporter):
 @threestudio.register("mesh-exporter-mvdream-interpolation")
 class MVDreamInteprolationMeshExporter(MeshExporter):
     def __call__(self, parameters=None) -> List[ExporterOutput]:
+        
         mesh: Mesh = self.geometry.isosurface(parameters=parameters)
 
         if self.cfg.fmt == "obj-mtl":
             return self.export_obj_with_mtl(mesh)
         elif self.cfg.fmt == "obj":
-            return self.export_obj(mesh)
+            return self.export_obj(mesh, parameters=parameters)
         else:
             raise ValueError(f"Unsupported mesh export format: {self.cfg.fmt}")

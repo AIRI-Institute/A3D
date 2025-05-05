@@ -1,0 +1,170 @@
+name: mvdream-sd21-rescale0.5-shading
+description: ''
+tag: ant_funny_animal
+seed: 0
+use_timestamp: true
+timestamp: '@20250116-185313'
+exp_root_dir: prompts_test
+exp_dir: prompts_test/mvdream-sd21-rescale0.5-shading
+trial_name: ant_funny_animal@20250116-185313
+trial_dir: prompts_test/mvdream-sd21-rescale0.5-shading/ant_funny_animal@20250116-185313
+n_gpus: 1
+resume: null
+data_type: random-multiview-camera-interpolation-datamodule
+data:
+  batch_size:
+  - 8
+  - 4
+  n_view: 4
+  width:
+  - 64
+  - 256
+  height:
+  - 64
+  - 256
+  resolution_milestones:
+  - 8000
+  camera_distance_range:
+  - 0.8
+  - 1.0
+  fovy_range:
+  - 15
+  - 60
+  elevation_range:
+  - 0
+  - 30
+  camera_perturb: 0.0
+  center_perturb: 0.0
+  up_perturb: 0.0
+  n_val_views: 4
+  eval_camera_distance: 3.0
+  eval_fovy_deg: 40.0
+  n_prompts: 2
+system_type: mvdream-interpolation-system
+system:
+  exporter_type: mesh-exporter-mvdream-interpolation
+  exporter:
+    context_type: cuda
+    fmt: obj
+    save_uv: true
+    save_texture: true
+  geometry_type: implicit-volume-parameterized
+  geometry:
+    radius: 1.0
+    normal_type: analytic
+    density_bias: blob_magic3d
+    density_activation: softplus
+    density_blob_scale: 10.0
+    density_blob_std: 0.5
+    n_parameter_dims: 2
+    pos_encoding_config:
+      otype: HashGrid
+      n_levels: 16
+      n_features_per_level: 2
+      log2_hashmap_size: 19
+      base_resolution: 16
+      per_level_scale: 1.447269237440378
+  material_type: diffuse-with-point-light-material
+  material:
+    ambient_only_steps: 8000
+    textureless_prob: 0.5
+    ambient_light_color:
+    - 1.0
+    - 1.0
+    - 1.0
+    diffuse_light_color:
+    - 0.0
+    - 0.0
+    - 0.0
+    soft_shading: true
+    albedo_activation: sigmoid
+  background_type: neural-environment-map-background
+  background:
+    color_activation: sigmoid
+    random_aug: true
+    share_aug_bg: true
+  renderer_type: nerf-volume-parameterized-renderer
+  renderer:
+    radius: 1.0
+    num_samples_per_ray: 512
+  prompt_processor_type: multi-prompt-processor
+  prompt_processor:
+    prompt_processor_list:
+    - prompt_processor_type: stable-diffusion-prompt-processor
+      prompt_processor:
+        pretrained_model_name_or_path: stabilityai/stable-diffusion-2-1-base
+        prompt: ant funny animal
+        negative_prompt: ugly, bad anatomy, blurry, pixelated obscure, unnatural colors,
+          poor lighting, dull, and unclear, cropped, lowres, low quality, artifacts,
+          duplicate, morbid, mutilated, poorly drawn face, deformed, dehydrated, bad
+          proportions, spider, crab
+        front_threshold: 30.0
+        back_threshold: 30.0
+    - prompt_processor_type: stable-diffusion-prompt-processor
+      prompt_processor:
+        pretrained_model_name_or_path: stabilityai/stable-diffusion-2-1-base
+        prompt: crab with claws animal
+        negative_prompt: ugly, bad anatomy, blurry, pixelated obscure, unnatural colors,
+          poor lighting, dull, and unclear, cropped, lowres, low quality, artifacts,
+          duplicate, morbid, mutilated, poorly drawn face, deformed, dehydrated, bad
+          proportions, ant, spider
+        front_threshold: 30.0
+        back_threshold: 30.0
+  guidance_type: multiview-diffusion-interpolation-guidance
+  guidance:
+    model_name: sd-v2.1-base-4view
+    ckpt_path: null
+    guidance_scale: 50.0
+    min_step_percent:
+    - 0
+    - 0.98
+    - 0.02
+    - 16000
+    max_step_percent:
+    - 0
+    - 0.98
+    - 0.5
+    - 16000
+    recon_loss: true
+    recon_std_rescale: 0.5
+  loggers:
+    wandb:
+      enable: false
+      project: threestudio
+  loss:
+    lambda_sds: 1.0
+    lambda_orient:
+    - 0
+    - 10.0
+    - 1000.0
+    - 5000
+    lambda_sparsity: 0.0
+    lambda_opaque: 0.0
+    lambda_z_variance: 0.0
+  optimizer:
+    name: AdamW
+    args:
+      betas:
+      - 0.9
+      - 0.99
+      eps: 1.0e-15
+    params:
+      geometry.encoding:
+        lr: 0.01
+      geometry.density_network:
+        lr: 0.001
+      geometry.feature_network:
+        lr: 0.001
+      background:
+        lr: 0.001
+trainer:
+  max_steps: 20000
+  log_every_n_steps: 1
+  num_sanity_val_steps: 0
+  val_check_interval: 1000
+  enable_progress_bar: true
+  precision: 16-mixed
+checkpoint:
+  save_last: true
+  save_top_k: -1
+  every_n_train_steps: 20000

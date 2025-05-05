@@ -32,6 +32,7 @@ def scale_tensor(
         tgt_scale = (0, 1)
     if isinstance(tgt_scale, Tensor):
         assert dat.shape[-1] == tgt_scale.shape[-1]
+   # print(inp_scale[0], inp_scale[1], tgt_scale[0], tgt_scale[1])
     dat = (dat - inp_scale[0]) / (inp_scale[1] - inp_scale[0])
     dat = dat * (tgt_scale[1] - tgt_scale[0]) + tgt_scale[0]
     return dat

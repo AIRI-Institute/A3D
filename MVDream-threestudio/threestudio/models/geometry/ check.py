@@ -219,7 +219,6 @@ class RandomMultiviewCameraIterableDataset(RandomCameraIterableDataset):
         )
         c2w[:, 3, 3] = 1.0
 
-        
         # get directions by dividing directions_unit_focal by focal length
         focal_length: Float[Tensor, "B"] = 0.5 * self.height / torch.tan(0.5 * fovy)
         directions: Float[Tensor, "B H W 3"] = self.directions_unit_focal[
@@ -255,33 +254,30 @@ class RandomMultiviewCameraIterableDataset(RandomCameraIterableDataset):
 class RandomMultiviewCameraIterableInterpolationDataset(RandomMultiviewCameraIterableDataset):
     def collate(self, batch) -> Dict[str, Any]:
         dict_batch = super().collate(batch)
-        if self.cfg.n_prompts == 1:
-            interpolation_weight = torch.ones([1]).reshape(1, 1)
-            parameters = interpolation_weight.reshape(1, 1, 1, 1)
+        # if torch.rand([1]) > 0.5:
+        #     interpolation_weight = torch.rand([1])
+        # else:
+        #     if torch.rand([1]) > 0.5:
+        #         interpolation_weight = torch.zeros([1])
+        #     else:
+        #         interpolation_weight = torch.ones([1])
+        # parameters = interpolation_weight.reshape(1, 1, 1, 1)
+
+        if torch.rand([1]) > 0.5:
+            k = torch.rand([1])
         else:
-            
-            if torch.rand([1]) > 0.:
-                if torch.rand([1]) > 0.5:
-                    k = torch.rand([1])
-                else:
-                    if torch.rand([1]) > 0.5:
-                        k = torch.zeros([1])
-                    else:
-                        k = torch.ones([1])
-                k = float(k)
-                i_a, i_b = random.sample(range(self.cfg.n_prompts), 2)
-                assert i_a != i_b
-                interpolation_weight, parameters = mix_two(k, i_a, i_b, self.cfg.n_prompts)
+            if torch.rand([1]) > 0.5:
+                k = torch.zeros([1])
             else:
-                interpolation_weight =  torch.rand([1,self.cfg.n_prompts])
-                interpolation_weight /= interpolation_weight.sum()
-                assert torch.allclose(interpolation_weight.sum(), torch.tensor(1).float())
-                parameters = interpolation_weight.reshape(1, 1, 1, self.cfg.n_prompts)
+                k = torch.ones([1])
+        k = float(k)
+        i_a, i_b = random.sample(range(self.cfg.n_prompts), 2)
+        assert i_a != i_b
+        interpolation_weight, parameters = mix_two(k, i_a, i_b, self.cfg.n_prompts)
+
         
         dict_batch['parameters'] = parameters
         dict_batch['interpolation_weight'] = interpolation_weight
-        
-        
         return dict_batch
 
 @register("random-multiview-camera-datamodule")

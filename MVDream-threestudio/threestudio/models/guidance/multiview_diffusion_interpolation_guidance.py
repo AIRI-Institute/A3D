@@ -1,8 +1,3 @@
-# Modified by the authors of the ICLR 2025 paper:
-# "A3D: Does Diffusion Dream about 3D Alignment?"
-# Based on MVDream-threestudio (https://github.com/bytedance/MVDream-threestudio)
-# Licensed under the Apache License 2.0
-
 import sys
 
 from dataclasses import dataclass, field
@@ -89,8 +84,8 @@ class MultiviewDiffusionInterpolationGuidance(BaseModule):
     def forward(
         self,
         rgb: Float[Tensor, "B H W C"],
-        prompt_utils_A: PromptProcessorOutput,
-        prompt_utils_B: PromptProcessorOutput,
+        prompt_utils: PromptProcessorOutput,
+        # prompt_utils_B: PromptProcessorOutput,
         elevation: Float[Tensor, "B"],
         azimuth: Float[Tensor, "B"],
         camera_distances: Float[Tensor, "B"],
@@ -107,17 +102,12 @@ class MultiviewDiffusionInterpolationGuidance(BaseModule):
         camera = c2w
 
         rgb_BCHW = rgb.permute(0, 3, 1, 2)
-        
-        assert torch.numel(interpolation_weight) == 1
+
         interpolation_weight = interpolation_weight.to(rgb.device)
         if text_embeddings is None:
-            text_embeddings_A = prompt_utils_A.get_text_embeddings(
-                elevation, azimuth, camera_distances, self.cfg.view_dependent_prompting
+            text_embeddings = prompt_utils.get_text_embeddings(
+                elevation, azimuth, camera_distances, self.cfg.view_dependent_prompting, interpolation_weight  
             )
-            text_embeddings_B = prompt_utils_B.get_text_embeddings(
-                elevation, azimuth, camera_distances, self.cfg.view_dependent_prompting
-            )
-            text_embeddings = interpolation_weight*text_embeddings_A + (1 -  interpolation_weight)*text_embeddings_B
 
         if input_is_latent:
             latents = rgb

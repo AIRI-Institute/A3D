@@ -1,5 +1,5 @@
-name: "mvdream-sd21-rescale0.5-shading_1prompt"
-tag: "${rmspace:${system.prompt_processor.prompt_processor_list[0].prompt_processor.prompt},_}"
+name: "mvdream-sd21-rescale0.5-shading"
+tag: "${rmspace:${system.prompt_processor.prompt_processor_list[0].prompt_processor.prompt}-${system.prompt_processor.prompt_processor_list[1].prompt_processor.prompt}-${system.prompt_processor.prompt_processor_list[2].prompt_processor.prompt},_}"
 exp_root_dir: "outputs"
 seed: 0
 
@@ -10,7 +10,7 @@ data:
   # 0-4999: 64x64, >=5000: 256x256
   width: [64, 256]
   height: [64, 256]
-  resolution_milestones: [5000]
+  resolution_milestones: [15000]
   camera_distance_range: [0.8, 1.0] # relative
   fovy_range: [15, 60]
   elevation_range: [0, 30]
@@ -20,17 +20,10 @@ data:
   n_val_views: 4
   eval_camera_distance: 3.0
   eval_fovy_deg: 40.
-  n_prompts: 1
+  n_prompts: 3
 
 system_type: "mvdream-interpolation-system"
 system:
-  exporter_type: 'mesh-exporter-mvdream-interpolation'
-  exporter:
-    context_type: 'cuda'
-    fmt: 'obj'
-    save_uv: False
-    save_texture: False
-    
   geometry_type: "implicit-volume-parameterized"
   geometry:
     radius: 1.0
@@ -40,7 +33,7 @@ system:
     density_activation: softplus
     density_blob_scale: 10.
     density_blob_std: 0.5
-    n_parameter_dims: 1
+    n_parameter_dims: 3
 
     pos_encoding_config:
       otype: HashGrid
@@ -52,7 +45,7 @@ system:
 
   material_type: "diffuse-with-point-light-material"
   material:
-    ambient_only_steps: 5000
+    ambient_only_steps: 15000
     textureless_prob: 0.5
     ambient_light_color: [1.0, 1.0, 1.0]
     diffuse_light_color: [0.0, 0.0, 0.0]
@@ -76,18 +69,32 @@ system:
       -  prompt_processor_type: "stable-diffusion-prompt-processor"
          prompt_processor:
            pretrained_model_name_or_path: "stabilityai/stable-diffusion-2-1-base"
-           prompt: "cat animal running"
+           prompt: "man standing"
            negative_prompt: "ugly, bad anatomy, blurry, pixelated obscure, unnatural colors, poor lighting, dull, and unclear, cropped, lowres, low quality, artifacts, duplicate, morbid, mutilated, poorly drawn face, deformed, dehydrated, bad proportions"
            front_threshold: 30.
            back_threshold: 30.
+      -  prompt_processor_type: "stable-diffusion-prompt-processor"
+         prompt_processor:
+            pretrained_model_name_or_path: "stabilityai/stable-diffusion-2-1-base"
+            prompt: "robot standing"
+            negative_prompt: "ugly, bad anatomy, blurry, pixelated obscure, unnatural colors, poor lighting, dull, and unclear, cropped, lowres, low quality, artifacts, duplicate, morbid, mutilated, poorly drawn face, deformed, dehydrated, bad proportions"
+            front_threshold: 30.
+            back_threshold: 30.
+      -  prompt_processor_type: "stable-diffusion-prompt-processor"
+         prompt_processor:
+            pretrained_model_name_or_path: "stabilityai/stable-diffusion-2-1-base"
+            prompt: "skeleton standing"
+            negative_prompt: "ugly, bad anatomy, blurry, pixelated obscure, unnatural colors, poor lighting, dull, and unclear, cropped, lowres, low quality, artifacts, duplicate, morbid, mutilated, poorly drawn face, deformed, dehydrated, bad proportions"
+            front_threshold: 30.
+            back_threshold: 30.
 
   guidance_type: "multiview-diffusion-interpolation-guidance"
   guidance:
     model_name: "sd-v2.1-base-4view"
     ckpt_path: null # path to a pre-downloaded checkpoint file (null for loading from URL)
     guidance_scale: 50.0
-    min_step_percent: [0, 0.98, 0.02, 10000]  # (start_iter, start_val, end_val, end_iter)
-    max_step_percent: [0, 0.98, 0.50, 10000]
+    min_step_percent: [0, 0.98, 0.02, 30000]  # (start_iter, start_val, end_val, end_iter)
+    max_step_percent: [0, 0.98, 0.50, 30000]
     recon_loss: true
     recon_std_rescale: 0.5
 
@@ -118,7 +125,7 @@ system:
         lr: 0.001
 
 trainer:
-  max_steps: 10000
+  max_steps: 30000
   log_every_n_steps: 1
   num_sanity_val_steps: 0
   val_check_interval: 1000

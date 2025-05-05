@@ -6,6 +6,7 @@ https://mv-dream.github.io/gallery_0.html) | [Comparison](https://mv-dream.githu
 
 
 
+
 - **This code is forked from [threestudio](https://github.com/threestudio-project/threestudio) for SDS and 3D Generation using MVDream.**
 - **For diffusion model and 2D image generation, check original [MVDream](https://github.com/bytedance/MVDream) repo.**
 
@@ -61,8 +62,7 @@ git clone https://github.com/bytedance/MVDream extern/MVDream
 pip install -e extern/MVDream 
 ```
 
-
-## Quickstart
+### Quickstart
 
 We currently provide two configurations for MVDream, one without soft-shading and one with it. The one without shading is more effecient in both memory and time. You can run it by
 

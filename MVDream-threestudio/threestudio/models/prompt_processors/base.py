@@ -349,6 +349,7 @@ class PromptProcessor(BaseObject):
             + self.prompts_vd
             + self.negative_prompts_vd
         )
+       
         prompts_to_process = []
         for prompt in all_prompts:
             if self.cfg.use_cache:
@@ -364,7 +365,6 @@ class PromptProcessor(BaseObject):
                     )
                     continue
             prompts_to_process.append(prompt)
-
         if len(prompts_to_process) > 0:
             if self.cfg.spawn:
                 ctx = mp.get_context("spawn")
@@ -393,6 +393,7 @@ class PromptProcessor(BaseObject):
         self.uncond_text_embeddings = self.load_from_cache(self.negative_prompt)[
             None, ...
         ]
+        #self.pooled_embeddings = self.load_from_cache(self.pooled_prompt)[None, ...]
         self.text_embeddings_vd = torch.stack(
             [self.load_from_cache(prompt) for prompt in self.prompts_vd], dim=0
         )
@@ -501,6 +502,7 @@ class PromptProcessor(BaseObject):
     def __call__(self) -> PromptProcessorOutput:
         return PromptProcessorOutput(
             text_embeddings=self.text_embeddings,
+            #pooled_embeddings=self.pooled_embeddings,
             uncond_text_embeddings=self.uncond_text_embeddings,
             text_embeddings_vd=self.text_embeddings_vd,
             uncond_text_embeddings_vd=self.uncond_text_embeddings_vd,
@@ -512,3 +514,119 @@ class PromptProcessor(BaseObject):
             perp_neg_f_fs=self.cfg.perp_neg_f_fs,
             perp_neg_f_sf=self.cfg.perp_neg_f_sf,
         )
+
+
+@dataclass
+class MultiPromptProcessorOutput:
+    processor_outputs: List
+
+    def slerp_interpolation(
+        self, control_points, t, slerp_scale=0.5):
+        p0, p1 = control_points[:,0], control_points[:, 1]
+
+        p0_norm = torch.linalg.norm(p0, dim=(1,2))
+        p1_norm = torch.linalg.norm(p1, dim=(1,2))
+    
+        similarity = torch.sum((p0 / p0_norm[:, None, None]) * (p1 / p1_norm[:, None, None]), dim=(1,2))
+        similarity = similarity.clip(-1,1)
+
+        angle = torch.acos((similarity)) / 2
+    
+        slerp_t = angle * (2 * t - 1)
+
+        slerp_t = torch.tan(slerp_t) / torch.tan(angle)
+        slerp_t = (slerp_t + 1) / 2
+
+        normalized_p1 = p1 / p1_norm[:, None, None] * p0_norm[:, None, None]
+        slerp_p = p0 + (normalized_p1 - p0) * slerp_t[:, None, None]
+        slerp_p = slerp_p / torch.linalg.norm(slerp_p, dim=(1,2), keepdims=True) 
+        slerp_p = slerp_p* (p0_norm[:, None, None] + (p1_norm[:, None, None] - p0_norm[:, None, None]) * t[:, None, None])
+        lerp_p = p0 + (p1 - p0) * t[:, None, None]
+        res = lerp_p + (slerp_p - lerp_p) * slerp_scale
+        return res
+        
+
+    def get_text_embeddings(
+        self,
+        elevation: Float[Tensor, "B"],
+        azimuth: Float[Tensor, "B"],
+        camera_distances: Float[Tensor, "B"],
+        view_dependent_prompting: bool = True,
+        interpolation_weight: Float[Tensor, "B Np"] = None
+    ) -> Float[Tensor, "BB N Nf"]:
+        batch_size = elevation.shape[0]
+        assert len(interpolation_weight.shape) == 2 and interpolation_weight.shape[1] == len(self.processor_outputs)
+        assert interpolation_weight.shape[0] in [1, batch_size]
+        interpolation_weight = interpolation_weight.repeat(batch_size//interpolation_weight.shape[0],
+                                                           1)
+        
+        interpolation_weight = interpolation_weight.repeat(2, 1) # BB Np
+            
+        embeddings = []
+        for output in self.processor_outputs:
+            embeddings.append(output.get_text_embeddings(elevation,
+                                                         azimuth,
+                                                         camera_distances,
+                                                         view_dependent_prompting)
+                             )
+        embeddings = torch.stack(embeddings, dim=1) # BB Np N Nf
+        # if embeddings.shape[1] == 2:
+        #     return self.slerp_interpolation(embeddings, interpolation_weight[:, 0])
+        # assert False
+        return (embeddings * interpolation_weight[:, :, None, None]).sum(dim=1)
+
+
+
+    def get_text_embeddings_perp_neg(
+        self,
+        elevation: Float[Tensor, "B"],
+        azimuth: Float[Tensor, "B"],
+        camera_distances: Float[Tensor, "B"],
+        view_dependent_prompting: bool = True,
+        interpolation_weight: Float[Tensor, "B Np"] = None
+        
+    ) -> Tuple[Float[Tensor, "BBBB N Nf"], Float[Tensor, "B 2"]]:
+        assert (
+            view_dependent_prompting
+        ), "Perp-Neg only works with view-dependent prompting"
+
+        batch_size = elevation.shape[0]
+        assert len(interpolation_weight.shape) == 2 and interpolation_weight.shape[1] == len(self.processor_outputs)
+        assert interpolation_weight.shape[0] in [1, batch_size]
+        interpolation_weight = interpolation_weight.repeat(batch_size//interpolation_weight.shape[0],
+                                                           1) # B Np
+        
+        interpolation_weight_repeated = interpolation_weight.repeat(4, 1) # BBBB Np
+
+        embeddings = []
+        neg_guidance_weights = []
+        for output in self.processor_outputs:
+            dummy = output.get_text_embeddings_perp_neg(elevation,
+                                                         azimuth,
+                                                         camera_distances,
+                                                         view_dependent_prompting)
+            embeddings.append(dummy[0])
+            neg_guidance_weights.append(dummy[1])
+
+        embeddings = torch.stack(embeddings, dim=1) # BBBB Np N Nf
+        neg_guidance_weights = torch.stack(neg_guidance_weights, dim=1) # B Np 2
+
+        return (embeddings * interpolation_weight_repeated[:, :, None, None]).sum(dim=1), (neg_guidance_weights * interpolation_weight[:, :, None]).sum(dim=1)
+
+
+@threestudio.register("multi-prompt-processor")
+class MultiPromptProcessor(BaseObject):
+    @dataclass
+    class Config(BaseObject.Config):
+        prompt_processor_list: List
+
+    cfg: Config
+
+    def configure(self) -> None:
+        self.prompt_processor_list = []
+        for p in self.cfg.prompt_processor_list: 
+            self.prompt_processor_list.append(
+                threestudio.find(p.prompt_processor_type)(p.prompt_processor)
+            )
+    def __call__(self) -> MultiPromptProcessorOutput:
+        return MultiPromptProcessorOutput([p_p() for p_p in self.prompt_processor_list])

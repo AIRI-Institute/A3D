@@ -1,8 +1,3 @@
-# Modified by the authors of the ICLR 2025 paper:
-# "A3D: Does Diffusion Dream about 3D Alignment?"
-# Based on MVDream-threestudio (https://github.com/bytedance/MVDream-threestudio)
-# Licensed under the Apache License 2.0
-
 import os
 from dataclasses import dataclass, field
 
@@ -30,14 +25,10 @@ class MVDreamInterpolationSystem(BaseLift3DSystemMultiplePrompts):
         self.guidance = threestudio.find(self.cfg.guidance_type)(self.cfg.guidance)
         self.guidance.requires_grad_(False)
 
-        self.prompt_processor_A = threestudio.find(self.cfg.prompt_processor_type)(
-            self.cfg.prompt_processor_A
+        self.prompt_processor = threestudio.find(self.cfg.prompt_processor_type)(
+            self.cfg.prompt_processor
         )
-        self.prompt_processor_B = threestudio.find(self.cfg.prompt_processor_type)(
-            self.cfg.prompt_processor_B
-        )
-        self.prompt_utils_A = self.prompt_processor_A()
-        self.prompt_utils_B = self.prompt_processor_B()
+        self.prompt_utils = self.prompt_processor()
 
     def on_load_checkpoint(self, checkpoint):
         for k in list(checkpoint['state_dict'].keys()):
@@ -45,13 +36,13 @@ class MVDreamInterpolationSystem(BaseLift3DSystemMultiplePrompts):
                 return
         guidance_state_dict = {"guidance."+k : v for (k,v) in self.guidance.state_dict().items()}
         checkpoint['state_dict'] = {**checkpoint['state_dict'], **guidance_state_dict}
-        return
+        return 
 
     def on_save_checkpoint(self, checkpoint):
         for k in list(checkpoint['state_dict'].keys()):
             if k.startswith("guidance."):
                 checkpoint['state_dict'].pop(k)
-        return
+        return 
 
     def forward(self, batch: Dict[str, Any]) -> Dict[str, Any]:
         return self.renderer(**batch)
@@ -59,35 +50,38 @@ class MVDreamInterpolationSystem(BaseLift3DSystemMultiplePrompts):
     def on_predict_epoch_end(self, parameters=None) -> None:
         if self.exporter.cfg.save_video:
             self.on_test_epoch_end()
-        exporter_output: List[ExporterOutput] = self.exporter(parameters=parameters)
-        for out in exporter_output:
-            save_func_name = f"save_{out.save_type}"
-            if not hasattr(self, save_func_name):
-                raise ValueError(f"{save_func_name} not supported by the SaverMixin")
-            save_func = getattr(self, save_func_name)
-            parameter_np = parameters.cpu().numpy()[0, 0]
-            save_func(f"it{self.true_global_step}-param-{parameter_np}-export/{out.save_name}", **out.params)
+        for i in range(len(self.cfg.prompt_processor.prompt_processor_list)):
+            interpolation_weight = torch.zeros([1, len(self.cfg.prompt_processor.prompt_processor_list)]).cuda()
+            interpolation_weight[:,i] = 1
+            parameters = interpolation_weight.reshape(1, len(self.cfg.prompt_processor.prompt_processor_list))
+            exporter_output: List[ExporterOutput] = self.exporter(parameters=parameters)
+            for out in exporter_output:
+                save_func_name = f"save_{out.save_type}"
+                if not hasattr(self, save_func_name):
+                    raise ValueError(f"{save_func_name} not supported by the SaverMixin")
+                save_func = getattr(self, save_func_name)
+                #parameter_np = parameters.cpu().numpy()[0, 0]
+                save_func(f"it{self.true_global_step}-export/{out.save_name}_prompt_{self.cfg.prompt_processor.prompt_processor_list[i].prompt_processor.prompt}", **out.params)
+                print(f"mesh for prompt {self.cfg.prompt_processor.prompt_processor_list[i].prompt_processor.prompt} is saved!")
+        
+        if self.exporter.geometry.cfg.interpolation is not None:
+            exporter_output: List[ExporterOutput] = self.exporter(parameters=None)
+            for out in exporter_output:
+                save_func_name = f"save_{out.save_type}"
+                if not hasattr(self, save_func_name):
+                    raise ValueError(f"{save_func_name} not supported by the SaverMixin")
+                save_func = getattr(self, save_func_name)
+                save_func(f"it{self.true_global_step}-export/{out.save_name}_prompt_interpolated", **out.params)
+                print(f"mesh for interpolated prompt is saved!")
+        
+
+
 
     def training_step(self, batch, batch_idx):
         out = self(batch)
 
-        # if (self.true_global_step % 1000 == 500 or self.true_global_step == 9999) and self.true_global_step > 999:
-        # # if (self.true_global_step % 1000 == 500 or self.true_global_step == 9999):
-        #     print(f"extracting mesh on step {self.true_global_step}, parameter = 0")
-        #     self.on_predict_start()
-        #     interpolation_weight = torch.zeros([1]).cuda()
-        #     parameters = interpolation_weight.reshape(1, 1)
-        #     self.on_predict_epoch_end(parameters=parameters)
-        #     self.on_predict_end()
-        #     print(f"extracting mesh on step {self.true_global_step}, parameter = 1")
-        #     self.on_predict_start()
-        #     interpolation_weight = torch.ones([1]).cuda()
-        #     parameters = interpolation_weight.reshape(1, 1)
-        #     self.on_predict_epoch_end(parameters=parameters)
-        #     self.on_predict_end()
-
         guidance_out = self.guidance(
-            out["comp_rgb"], self.prompt_utils_A, self.prompt_utils_B, **batch
+            out["comp_rgb"], self.prompt_utils, **batch
         )
 
         loss = 0.0
@@ -108,23 +102,6 @@ class MVDreamInterpolationSystem(BaseLift3DSystemMultiplePrompts):
             ).sum() / (out["opacity"] > 0).sum()
             self.log("train/loss_orient", loss_orient)
             loss += loss_orient * self.C(self.cfg.loss.lambda_orient)
-
-        # print(out["comp_normal"].shape)
-        def normal_consistency_penalty(normal):
-            # normal [batch_size, res, res, 3]
-            assert len(normal.shape) == 4 and normal.shape[-1] == 3
-            nc_x = (1.0 - torch.cosine_similarity(normal[:, :-1, :, :], 
-                                                  normal[:, 1:, :, :], 
-                                                  dim=-1)
-                ).mean()
-            nc_y = (1.0 - torch.cosine_similarity(normal[:, :, :-1, :], 
-                                                  normal[:, :, 1:, :], 
-                                                  dim=-1)
-                ).mean()
-            return nc_x + nc_y
-
-        loss += 10. * normal_consistency_penalty(out["comp_normal"])
-
 
         if self.C(self.cfg.loss.lambda_sparsity) > 0:
             loss_sparsity = (out["opacity"] ** 2 + 0.01).sqrt().mean()
@@ -158,7 +135,6 @@ class MVDreamInterpolationSystem(BaseLift3DSystemMultiplePrompts):
 
     def validation_step(self, batch, batch_idx):
         out = self(batch)
-        # print("validation step: ", batch['index'], batch_idx)
         self.save_image_grid(
             f"it{self.true_global_step}-{batch['index'][0]}.png",
             (

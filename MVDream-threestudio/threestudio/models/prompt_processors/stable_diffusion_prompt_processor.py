@@ -60,12 +60,15 @@ class StableDiffusionPromptProcessor(PromptProcessor):
         )
 
         with torch.no_grad():
-            text_embeddings = self.text_encoder(tokens.input_ids.to(self.device))[0]
+            text_embeddings = self.text_encoder(tokens.input_ids.to(self.device))
+            pooled_embeddings = text_embeddings.pooler_output
+            text_embeddings = text_embeddings[0]
             uncond_text_embeddings = self.text_encoder(
                 uncond_tokens.input_ids.to(self.device)
             )[0]
 
-        return text_embeddings, uncond_text_embeddings
+
+        return text_embeddings, uncond_text_embeddings#, pooled_embeddings
 
     ###
 
@@ -88,7 +91,9 @@ class StableDiffusionPromptProcessor(PromptProcessor):
                 max_length=tokenizer.model_max_length,
                 return_tensors="pt",
             )
-            text_embeddings = text_encoder(tokens.input_ids.to(text_encoder.device))[0]
+            text_embeddings = text_encoder(tokens.input_ids.to(text_encoder.device))
+            pooled_embeddings = text_embeddings.pooler_output
+            text_embeddings = text_embeddings[0]
 
         for prompt, embedding in zip(prompts, text_embeddings):
             torch.save(

@@ -1,4 +1,4 @@
-name: "mvdream-sd21-rescale0.5-shading_1prompt"
+name: "mvdream-sd21-rescale0.5-shading"
 tag: "${rmspace:${system.prompt_processor.prompt_processor_list[0].prompt_processor.prompt},_}"
 exp_root_dir: "outputs"
 seed: 0
@@ -24,13 +24,6 @@ data:
 
 system_type: "mvdream-interpolation-system"
 system:
-  exporter_type: 'mesh-exporter-mvdream-interpolation'
-  exporter:
-    context_type: 'cuda'
-    fmt: 'obj'
-    save_uv: False
-    save_texture: False
-    
   geometry_type: "implicit-volume-parameterized"
   geometry:
     radius: 1.0
@@ -76,7 +69,7 @@ system:
       -  prompt_processor_type: "stable-diffusion-prompt-processor"
          prompt_processor:
            pretrained_model_name_or_path: "stabilityai/stable-diffusion-2-1-base"
-           prompt: "cat animal running"
+           prompt: "man standing"
            negative_prompt: "ugly, bad anatomy, blurry, pixelated obscure, unnatural colors, poor lighting, dull, and unclear, cropped, lowres, low quality, artifacts, duplicate, morbid, mutilated, poorly drawn face, deformed, dehydrated, bad proportions"
            front_threshold: 30.
            back_threshold: 30.

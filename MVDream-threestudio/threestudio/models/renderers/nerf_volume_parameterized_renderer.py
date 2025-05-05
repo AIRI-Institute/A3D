@@ -1,8 +1,3 @@
-# Modified by the authors of the ICLR 2025 paper:
-# "A3D: Does Diffusion Dream about 3D Alignment?"
-# Based on MVDream-threestudio (https://github.com/bytedance/MVDream-threestudio)
-# Licensed under the Apache License 2.0
-
 from dataclasses import dataclass
 
 import nerfacc
@@ -16,7 +11,7 @@ from threestudio.models.materials.base import BaseMaterial
 from threestudio.models.renderers.base import VolumeRenderer
 from threestudio.utils.ops import chunk_batch, validate_empty_rays
 from threestudio.utils.typing import *
-
+from cupyx.scipy.interpolate import RBFInterpolator
 
 @threestudio.register("nerf-volume-parameterized-renderer")
 class NeRFVolumeParameterizedRenderer(VolumeRenderer):
@@ -29,6 +24,7 @@ class NeRFVolumeParameterizedRenderer(VolumeRenderer):
         prune_alpha_threshold: bool = True
         return_comp_normal: bool = False
         return_normal_perturb: bool = False
+        interpolation: Optional[dict] = None
 
     cfg: Config
 
@@ -49,6 +45,16 @@ class NeRFVolumeParameterizedRenderer(VolumeRenderer):
             1.732 * 2 * self.cfg.radius / self.cfg.num_samples_per_ray
         )
         self.randomized = self.cfg.randomized
+
+    @staticmethod
+    def rbf_interpolation(points, anchors, values, function='linear', epsilon=1e-9):
+        
+        rbfi = RBFInterpolator(anchors, values, kernel=function, epsilon=epsilon)  # radial basis function interpolator instance
+        X,Y,Z = points.unbind(dim=1)
+        v = rbfi(points)
+        v = v.clip(0, 1)
+        
+        return v
 
     def forward(
         self,
@@ -85,7 +91,22 @@ class NeRFVolumeParameterizedRenderer(VolumeRenderer):
         assert parameters_flatten.shape[3] == self.geometry.cfg.n_parameter_dims
         
         parameters_flatten = parameters_flatten.reshape(-1, self.geometry.cfg.n_parameter_dims)
-        
+
+        if spatial_parameter_interpolation is not None:
+            if self.cfg.interpolation is None:
+                print("No anchors points were provided, the scene will be devided in a half")
+                anchors = None
+                values = None
+            else:
+                anchors = []
+                values = []
+                assert len(self.cfg.interpolation.anchors.keys()) == len(self.cfg.interpolation.vals.keys())
+                for point in self.cfg.interpolation.anchors.keys():
+                    anchors.append(torch.tensor(self.cfg.interpolation.anchors[point]).reshape(-1,3))
+                    values.append(torch.tensor(self.cfg.interpolation.vals[point]).reshape(-1,self.geometry.cfg.n_parameter_dims))
+                anchors = torch.cat(anchors, axis=0)
+                values = torch.cat(values, axis=0)
+                
         def sigma_fn(t_starts, t_ends, ray_indices):
             t_starts, t_ends = t_starts[..., None], t_ends[..., None]
             t_origins = rays_o_flatten[ray_indices]
@@ -97,11 +118,16 @@ class NeRFVolumeParameterizedRenderer(VolumeRenderer):
 
             # Intoducing spatial interpolation of the latent codes if the corresponding parameter is specified
             if spatial_parameter_interpolation is not None:
-                positions_axis_of_interest = positions[:, spatial_parameter_interpolation:spatial_parameter_interpolation+1]
-                positions_up_bound = positions_axis_of_interest.max()
-                positions_low_bound = positions_axis_of_interest.min()
-                parameters_sampled = parameters_sampled * (positions_axis_of_interest - positions_low_bound) / (positions_up_bound - positions_low_bound + 0.01)
-            
+                if anchors is None or values is None:
+                    positions_axis_of_interest = positions[:, :1]
+                    positions_up_bound = positions_axis_of_interest.max()
+                    positions_low_bound = positions_axis_of_interest.min()
+                    parameters_sampled = parameters_sampled * (positions_axis_of_interest - positions_low_bound) / (positions_up_bound - positions_low_bound + 0.01)
+                else:
+                    parameters_sampled = torch.as_tensor(self.rbf_interpolation(positions, anchors, values)).to(positions.device).float()
+                
+                
+        
             if self.training:
                 sigma = self.geometry.forward_density(positions, parameters=parameters_sampled)[..., 0]
             else:
@@ -153,11 +179,14 @@ class NeRFVolumeParameterizedRenderer(VolumeRenderer):
 
         # Intoducing spatial interpolation of the latent codes if the corresponding parameter is specified
         if spatial_parameter_interpolation is not None:
-            positions_axis_of_interest = positions[:, spatial_parameter_interpolation:spatial_parameter_interpolation+1]
-            positions_up_bound = positions_axis_of_interest.max()
-            positions_low_bound = positions_axis_of_interest.min()
-            parameters_sampled = parameters_sampled * (positions_axis_of_interest - positions_low_bound) / (positions_up_bound - positions_low_bound + 0.01)
-
+            if anchors is None or values is None:
+                positions_axis_of_interest = positions[:, :1]
+                positions_up_bound = positions_axis_of_interest.max()
+                positions_low_bound = positions_axis_of_interest.min()
+                parameters_sampled = parameters_sampled * (positions_axis_of_interest - positions_low_bound) / (positions_up_bound - positions_low_bound + 0.01)
+            else:
+                parameters_sampled = torch.as_tensor(self.rbf_interpolation(positions, anchors, values)).to(positions.device).float()
+        
         if self.training:
             geo_out = self.geometry(
                 positions,
@@ -219,7 +248,6 @@ class NeRFVolumeParameterizedRenderer(VolumeRenderer):
             ray_indices=ray_indices,
             n_rays=n_rays,
         )
-
         if bg_color is None:
             bg_color = comp_rgb_bg
         else:

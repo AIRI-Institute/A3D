@@ -76,6 +76,7 @@ class ExperimentConfig:
     # see https://lightning.ai/docs/pytorch/stable/api/lightning.pytorch.callbacks.ModelCheckpoint.html#modelcheckpoint
     checkpoint: dict = field(default_factory=dict)
 
+
     def __post_init__(self):
         if not self.tag and not self.use_timestamp:
             raise ValueError("Either tag is specified or use_timestamp is True.")

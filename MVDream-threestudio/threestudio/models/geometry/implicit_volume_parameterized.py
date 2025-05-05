@@ -1,8 +1,3 @@
-# Modified by the authors of the ICLR 2025 paper:
-# "A3D: Does Diffusion Dream about 3D Alignment?"
-# Based on MVDream-threestudio (https://github.com/bytedance/MVDream-threestudio)
-# Licensed under the Apache License 2.0
-
 from dataclasses import dataclass, field
 
 import numpy as np
@@ -21,6 +16,8 @@ from threestudio.models.geometry.base import (
 from threestudio.models.networks import get_encoding, get_mlp
 from threestudio.utils.ops import get_activation, chunk_batch, scale_tensor
 from threestudio.utils.typing import *
+from cupyx.scipy.interpolate import RBFInterpolator
+
 
 
 @threestudio.register("implicit-volume-parameterized")
@@ -61,6 +58,9 @@ class ImplicitVolumeParameterized(BaseImplicitGeometry):
         # automatically determine the threshold
         isosurface_threshold: Union[float, str] = 25.0
 
+        interpolation: Optional[dict] = None
+
+
     cfg: Config
 
     def configure(self) -> None:
@@ -69,8 +69,8 @@ class ImplicitVolumeParameterized(BaseImplicitGeometry):
             self.cfg.n_input_dims, self.cfg.pos_encoding_config
         )
         self.density_network = get_mlp(
-            self.encoding.n_output_dims + self.cfg.n_parameter_dims,
-            1,
+            self.encoding.n_output_dims + self.cfg.n_parameter_dims, 
+            1, 
             self.cfg.mlp_network_config
         )
         if self.cfg.n_feature_dims > 0:
@@ -115,6 +115,17 @@ class ImplicitVolumeParameterized(BaseImplicitGeometry):
         density = get_activation(self.cfg.density_activation)(raw_density)
         return raw_density, density
 
+    @staticmethod
+    def rbf_interpolation(points, anchors, values, function='linear', epsilon=1e-7):
+        
+        rbfi = RBFInterpolator(anchors, values, kernel=function, epsilon=epsilon)  # radial basis function interpolator instance
+        X,Y,Z = points.unbind(dim=1)
+        v = rbfi(points)
+        v = v.clip(0, 1)
+        
+        return v
+    
+    
     def _isosurface(self, bbox: Float[Tensor, "2 3"], fine_stage: bool = False, parameters=None) -> Mesh:
         def batch_func(x):
             # scale to bbox as the input vertices are in [0, 1]
@@ -122,8 +133,18 @@ class ImplicitVolumeParameterized(BaseImplicitGeometry):
                     x.to(bbox.device), self.isosurface_helper.points_range, bbox
                 )
             batch_size = scale_x.shape[0]
-            parameters_batch = parameters.repeat((batch_size, 1))
-            # print(f"scale_x.shape = {scale_x.shape}, parameters.shape = {parameters_batch.shape}")
+            if parameters is None:
+                anchors = []
+                values = []
+                assert len(self.cfg.interpolation.anchors.keys()) == len(self.cfg.interpolation.vals.keys())
+                for point in self.cfg.interpolation.anchors.keys():
+                    anchors.append(torch.tensor(self.cfg.interpolation.anchors[point]).reshape(-1,3))
+                    values.append(torch.tensor(self.cfg.interpolation.vals[point]).reshape(-1,self.cfg.n_parameter_dims))
+                anchors = torch.cat(anchors, axis=0)
+                values = torch.cat(values, axis=0)
+                parameters_batch = torch.as_tensor(self.rbf_interpolation(scale_x, anchors, values)).to(scale_x.device).float()
+            else:
+                parameters_batch = parameters.repeat((batch_size, 1))
 
             field, deformation = self.forward_field(
                 scale_x, parameters_batch
@@ -322,6 +343,19 @@ class ImplicitVolumeParameterized(BaseImplicitGeometry):
         points_unscaled = points
         points = contract_to_unisphere(points_unscaled, self.bbox, self.unbounded)
         enc = self.encoding(points.reshape(-1, self.cfg.n_input_dims))
+        
+        if parameters is None:
+            anchors = []
+            values = []
+            assert len(self.cfg.interpolation.anchors.keys()) == len(self.cfg.interpolation.vals.keys())
+            for point in self.cfg.interpolation.anchors.keys():
+                anchors.append(torch.tensor(self.cfg.interpolation.anchors[point]).reshape(-1,3))
+                values.append(torch.tensor(self.cfg.interpolation.vals[point]).reshape(-1,self.cfg.n_parameter_dims))
+            anchors = torch.cat(anchors, axis=0)
+            values = torch.cat(values, axis=0)
+            parameters = torch.as_tensor(self.rbf_interpolation(points, (anchors + 1)/2, values)).to(points.device).float()
+        else:
+            parameters = parameters.repeat(enc.shape[0], 1)
 
         # concatenatig parameters to the MLP input
         assert (parameters.shape[1] == self.cfg.n_parameter_dims) and (len(parameters.shape) == 2)
