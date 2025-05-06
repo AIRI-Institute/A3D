@@ -1,4 +1,4 @@
-https://voyleg.github.io/a3d/vid/motivation/motivation.mp4
+https://github.com/user-attachments/assets/44c2bdbf-03b1-4ba2-81e3-0c1107b5fbb3
 
 
 #  A3D: Does Diffusion Dream about 3D Alignment?
